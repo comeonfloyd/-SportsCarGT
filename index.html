@@ -1,0 +1,92 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Chassis Lab GT</title>
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <header id="topbar">
+    <div class="brand">CHASSIS<b>LAB</b><span>GT</span></div>
+    <nav class="modes">
+      <button id="modeBuild" class="active">① Garage</button>
+      <button id="modeTest">② Proving ground</button>
+    </nav>
+    <div class="filebar">
+      <select id="loadSel" title="Load a preset or a saved design"></select>
+      <button id="btnNew" title="New empty design">New</button>
+      <button id="btnSave" title="Save to garage (browser storage)">Save</button>
+      <button id="btnExport" title="Download design as JSON">Export</button>
+      <button id="btnImport" title="Load design from JSON file">Import</button>
+      <input type="file" id="fileInput" accept=".json,application/json" hidden>
+    </div>
+  </header>
+
+  <main>
+    <aside id="left">
+      <div id="buildLeft">
+        <h3>Tools</h3>
+        <div id="tools" class="toolgrid"></div>
+        <h3>Tube stock</h3>
+        <label class="field">Material<select id="matSel"></select></label>
+        <label class="field">Section (OD × wall, mm)<select id="tubeSel"></select></label>
+        <div id="tubeInfo" class="small mono"></div>
+        <button id="btnApplyAll" class="wide">Apply stock to every tube</button>
+        <h3>View</h3>
+        <label class="check"><input type="checkbox" id="snapChk" checked> Snap to 5 cm grid <kbd>G</kbd></label>
+        <label class="check"><input type="checkbox" id="labelChk"> Node numbers</label>
+        <button id="btnFit" class="wide">Fit view <kbd>F</kbd></button>
+        <button id="btnStatic" class="wide primary">Static load check</button>
+        <div class="help">
+          <p><b>Mouse:</b> left = tool · right/middle drag or <kbd>Space</kbd>+drag = pan · wheel = zoom · <kbd>Shift</kbd> = no snap</p>
+          <p><kbd>Ctrl</kbd>+<kbd>Z</kbd> undo · <kbd>Del</kbd> delete selected · <kbd>Enter</kbd> go test</p>
+          <p class="dim">Each tube, coilover and wheel stands for a mirrored left/right pair. Joints are pinned: tubes carry axial load only, so a frame has to be made of triangles.</p>
+        </div>
+      </div>
+      <div id="testLeft" hidden>
+        <h3>Proving ground</h3>
+        <div id="testList"></div>
+        <h3>Options</h3>
+        <label class="check"><input type="checkbox" id="stressChk" checked> Stress colours</label>
+        <label class="check"><input type="checkbox" id="slowChk"> Slow motion ¼× <kbd>M</kbd></label>
+        <div class="legend">
+          <div class="bar"></div>
+          <div class="mono small"><span>0 %</span><span>50 %</span><span>100 % → fail</span></div>
+        </div>
+        <div class="help">
+          <p><kbd>R</kbd> restart · <kbd>P</kbd> pause · <kbd>Esc</kbd> back to garage</p>
+          <p>Free drive: <kbd>→</kbd>/<kbd>D</kbd> gas · <kbd>←</kbd>/<kbd>A</kbd> brake &amp; reverse · <kbd>Space</kbd> brake</p>
+        </div>
+        <button id="btnBack" class="wide">← Back to garage</button>
+      </div>
+    </aside>
+
+    <section id="stage">
+      <canvas id="view"></canvas>
+      <div id="hud" hidden></div>
+      <div id="hint"></div>
+      <div id="toast"></div>
+    </section>
+
+    <aside id="right">
+      <div id="buildRight">
+        <section id="inspector" class="panel"></section>
+        <section id="stats" class="panel"></section>
+        <section id="warnings" class="panel"></section>
+      </div>
+      <div id="testRight" hidden>
+        <section id="results" class="panel"></section>
+        <section id="history" class="panel"></section>
+      </div>
+    </aside>
+  </main>
+
+  <script src="js/data.js"></script>
+  <script src="js/model.js"></script>
+  <script src="js/sim.js"></script>
+  <script src="js/tests.js"></script>
+  <script src="js/render.js"></script>
+  <script src="js/main.js"></script>
+</body>
+</html>
