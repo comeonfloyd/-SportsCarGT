@@ -38,26 +38,37 @@ window.GT = window.GT || {};
     { id: '60x3.0', D: 0.060, t: 0.0030 },
   ];
 
-  // Torque curves: [rpm, N·m]. Mass includes gearbox / battery pack.
+  // Torque curves: [rpm, N·m]. Mass includes a stock gearbox / battery pack.
+  // gears: first & top ratios (the gearbox picks how many in between). bsfc: g/kWh at load.
+  const G6 = [3.36, 2.18, 1.62, 1.27, 1.03, 0.85], G6R = [3.10, 2.05, 1.55, 1.24, 1.02, 0.86];
   GT.ENGINES = {
-    i4na: { name: '2.0 I4 NA',                tag: 'I4',  mass: 135, cost: 9000,  idle: 900,  redline: 8000,
-      curve: [[0, 120], [1000, 150], [3000, 185], [4500, 210], [6500, 205], [8000, 170]],
-      gears: [3.36, 2.18, 1.62, 1.27, 1.03, 0.85], final: 4.3 },
-    i4t:  { name: '2.0 I4 Turbo',             tag: 'I4T', mass: 150, cost: 14000, idle: 900,  redline: 7000,
-      curve: [[0, 150], [1000, 180], [2500, 400], [5500, 400], [7000, 300]],
-      gears: [3.36, 2.18, 1.62, 1.27, 1.03, 0.85], final: 3.9 },
-    v6tt: { name: '3.8 V6 Twin-turbo',        tag: 'V6TT', mass: 190, cost: 32000, idle: 850,  redline: 7100,
-      curve: [[0, 200], [1000, 250], [3000, 630], [5800, 630], [7100, 520]],
-      gears: [3.20, 2.10, 1.58, 1.25, 1.02, 0.84], final: 3.7 },
-    v8:   { name: '5.2 V8 flat-plane NA',     tag: 'V8',  mass: 205, cost: 42000, idle: 950,  redline: 8800,
-      curve: [[0, 250], [1000, 300], [3500, 480], [6200, 560], [8000, 520], [8800, 470]],
-      gears: [3.10, 2.05, 1.55, 1.24, 1.02, 0.86], final: 3.9 },
-    v12:  { name: '6.5 V12 NA',               tag: 'V12', mass: 245, cost: 90000, idle: 1000, redline: 9200,
-      curve: [[0, 300], [1000, 350], [4000, 600], [7000, 720], [8500, 690], [9200, 640]],
-      gears: [3.10, 2.05, 1.55, 1.24, 1.02, 0.86], final: 3.6 },
-    ev:   { name: 'Dual e-motor + 60 kWh pack', tag: 'EV', mass: 470, cost: 38000, idle: 0, redline: 17000, ev: true,
-      curve: [[0, 620], [6500, 620], [10000, 420], [17000, 240]],
-      gears: [9.1], final: 1.0 },
+    i3t:  { name: '1.0 I3 Turbo (eco)',          tag: 'I3T', mass: 95,  cost: 6000,  idle: 900,  redline: 6500, turbo: true, bsfc: 255,
+      curve: [[0, 90], [1000, 110], [2000, 200], [4500, 200], [6500, 150]], gears: G6, final: 4.2 },
+    i4na: { name: '2.0 I4 NA (high-revving)',    tag: 'I4',  mass: 135, cost: 9000,  idle: 900,  redline: 8000, bsfc: 250,
+      curve: [[0, 120], [1000, 150], [3000, 185], [4500, 210], [6500, 205], [8000, 170]], gears: G6, final: 4.3 },
+    i4t:  { name: '2.0 I4 Turbo',                tag: 'I4T', mass: 150, cost: 14000, idle: 900,  redline: 7000, turbo: true, bsfc: 265,
+      curve: [[0, 150], [1000, 180], [2500, 400], [5500, 400], [7000, 300]], gears: G6, final: 3.9 },
+    r2:   { name: '1.3 twin-rotor Wankel',       tag: 'ROT', mass: 115, cost: 16000, idle: 1000, redline: 9000, bsfc: 330, heat: 1.25,
+      curve: [[0, 100], [1000, 110], [4000, 170], [7500, 190], [9000, 170]], gears: G6, final: 4.4 },
+    f6:   { name: '4.0 flat-6 NA',               tag: 'F6',  mass: 175, cost: 38000, idle: 900,  redline: 9000, bsfc: 250,
+      curve: [[0, 250], [1000, 280], [4000, 400], [6500, 470], [8000, 460], [9000, 420]], gears: G6R, final: 3.9 },
+    v6tt: { name: '3.8 V6 Twin-turbo',           tag: 'V6TT', mass: 190, cost: 32000, idle: 850, redline: 7100, turbo: true, bsfc: 260,
+      curve: [[0, 200], [1000, 250], [3000, 630], [5800, 630], [7100, 520]], gears: [3.20, 0.84], final: 3.7 },
+    v8:   { name: '5.2 V8 flat-plane NA',        tag: 'V8',  mass: 205, cost: 42000, idle: 950,  redline: 8800, bsfc: 255,
+      curve: [[0, 250], [1000, 300], [3500, 480], [6200, 560], [8000, 520], [8800, 470]], gears: G6R, final: 3.9 },
+    v8pr: { name: '7.0 V8 pushrod NA (torque)',  tag: 'V8PR', mass: 190, cost: 22000, idle: 700, redline: 7000, bsfc: 270,
+      curve: [[0, 450], [1000, 500], [4800, 640], [6300, 600], [7000, 540]], gears: [2.97, 0.67], final: 3.4 },
+    v8tt: { name: '4.0 V8 Twin-turbo',           tag: 'V8TT', mass: 210, cost: 55000, idle: 800, redline: 7500, turbo: true, bsfc: 262,
+      curve: [[0, 300], [1000, 350], [2500, 800], [6000, 800], [7500, 650]], gears: G6R, final: 3.5 },
+    v10:  { name: '5.2 V10 NA',                  tag: 'V10', mass: 215, cost: 70000, idle: 1000, redline: 8700, bsfc: 258,
+      curve: [[0, 320], [1000, 360], [4500, 520], [6500, 560], [8000, 530], [8700, 500]], gears: G6R, final: 3.8 },
+    v12:  { name: '6.5 V12 NA',                  tag: 'V12', mass: 245, cost: 90000, idle: 1000, redline: 9200, bsfc: 265,
+      curve: [[0, 300], [1000, 350], [4000, 600], [7000, 720], [8500, 690], [9200, 640]], gears: G6R, final: 3.6 },
+    hyb:  { name: '1.6 V6 turbo-hybrid (ERS)',   tag: 'HYB', mass: 175, cost: 150000, idle: 4000, redline: 12000, turbo: true, bsfc: 225,
+      curve: [[0, 200], [3000, 260], [7000, 330], [10500, 380], [12000, 350]], gears: [3.5, 1.05], final: 3.4,
+      ers: { kw: 120, store: 4e6 } },
+    ev:   { name: 'Dual e-motor + 60 kWh pack',  tag: 'EV',  mass: 470, cost: 38000, idle: 0, redline: 17000, ev: true, battery: 60,
+      curve: [[0, 620], [6500, 620], [10000, 420], [17000, 240]], gears: [9.1], final: 1.0 },
   };
 
   // Per corner. Each axle entry = 2 corners.
@@ -88,11 +99,5 @@ window.GT = window.GT || {};
     splitter: { name: 'Front splitter',   kind: 'splitter', ClA: 0.45, CdA: 0.04, mass: 6,  cost: 900 },
     gt:       { name: 'GT wing',          kind: 'wing',     ClA: 1.00, CdA: 0.16, mass: 9,  cost: 2500 },
     ta:       { name: 'Time-attack wing', kind: 'wing',     ClA: 1.80, CdA: 0.32, mass: 13, cost: 5500 },
-  };
-  GT.BODIES = {
-    none:     { name: 'Bare frame (no body)',   CdA: 0.95, ClA: 0,    mass: 0,  cost: 0 },
-    roadster: { name: 'Roadster panels',        CdA: 0.78, ClA: 0,    mass: 45, cost: 4000 },
-    coupe:    { name: 'Composite coupé shell',  CdA: 0.62, ClA: 0.15, mass: 65, cost: 12000 },
-    lmp:      { name: 'Prototype aero shell',   CdA: 0.52, ClA: 0.60, mass: 80, cost: 30000 },
   };
 })(window.GT);

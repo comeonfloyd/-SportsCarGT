@@ -11,6 +11,13 @@
     return `rgb(255,${lerp(214, 59, t) | 0},${lerp(64, 48, t) | 0})`;
   };
 
+  // surface pressure: suction blue, stagnation red
+  GT.cpColor = function (cp) {
+    const t = Math.max(-1, Math.min(1, cp < 0 ? cp / 1.5 : cp));
+    if (t < 0) return `rgb(${lerp(235, 40, -t) | 0},${lerp(235, 120, -t) | 0},255)`;
+    return `rgb(255,${lerp(235, 60, t) | 0},${lerp(235, 40, t) | 0})`;
+  };
+
   class Renderer {
     constructor(cv) {
       this.cv = cv; this.ctx = cv.getContext('2d');
@@ -66,6 +73,8 @@
       const c = this.ctx, nm = GT.nodeMapOf(d), s = this.cam.s;
       const sel = o.sel || {}, util = o.util;
       const isSel = (k, id) => sel.kind === k && sel.id === id;
+      const P = id => nm.get(id);
+      this.bodyFill(GT.panelLoops(d).map(l => l.map(P)), d.setup.paint, o.bodyAlpha != null ? o.bodyAlpha : 0.28);
       for (const w of d.wheels) {
         const n = nm.get(w.node); if (!n) continue;
         const ws = GT.WHEELS[w.size] || GT.WHEELS.r18;
@@ -81,11 +90,18 @@
         const A = nm.get(sp.a), B = nm.get(sp.b); if (!A || !B) continue;
         this.coil(A.x, A.y, B.x, B.y, isSel('spring', sp.id) || o.hoverLink === sp, false);
       }
-      for (const w of d.wings) { const n = nm.get(w.node); if (n) this.wing(n.x, n.y, 0, GT.WINGS[w.type]); }
+      for (const p of d.panels || []) {
+        const A = nm.get(p.a), B = nm.get(p.b); if (!A || !B) continue;
+        const m = GT.PANEL_MATS[p.mat] || GT.PANEL_MATS.grp;
+        const cp = o.cp && o.cp.get('panel:' + p.id);
+        this.panel(A.x, A.y, B.x, B.y, cp != null ? GT.cpColor(cp) : m.color, isSel('panel', p.id) || o.hoverLink === p, p.mat === 'carbon');
+      }
+      for (const w of d.wings) { const n = nm.get(w.node); if (n) this.wing(n.x, n.y, 0, GT.WINGS[w.type], o.cp && o.cp.get('wing:' + w.id)); }
       if (d.engine) { const n = nm.get(d.engine.node); if (n) this.engine(n.x, n.y, 0, GT.ENGINES[d.engine.type]); }
+      if (d.tank) { const n = nm.get(d.tank.node); if (n) this.tank(n.x, n.y, 0, d.tank.fill, d.tank.type, (GT.TANKS[d.tank.size] || GT.TANKS.l40).L); }
       if (d.driver) { const n = nm.get(d.driver.node); if (n) this.driver(n.x, n.y, 0); }
       const r = Math.max(3, Math.min(6, s * 0.025));
-      for (const n of d.nodes) {
+      if (!o.noNodes) for (const n of d.nodes) {
         const hv = o.hover && o.hover.id === n.id, sl = isSel('node', n.id);
         c.beginPath(); c.arc(this.sx(n.x), this.sy(n.y), sl || hv ? r + 2 : r, 0, TAU);
         c.fillStyle = sl ? '#ff7a2f' : hv ? '#ffd2b8' : '#e8edf2'; c.fill();
@@ -96,7 +112,7 @@
       if (o.axle) this.dim(o.axle.rearX, o.axle.frontX, -0.12, `wheelbase ${(o.axle.wheelbase * 1000).toFixed(0)} mm`);
       if (o.preview) {
         const p = o.preview;
-        c.setLineDash([6, 4]); c.lineWidth = 2; c.strokeStyle = p.ok ? (p.type === 'spring' ? '#f4c542' : '#ff7a2f') : '#ff3b30';
+        c.setLineDash([6, 4]); c.lineWidth = 2; c.strokeStyle = p.ok ? (p.type === 'spring' ? '#f4c542' : p.type === 'panel' ? '#7fd3ff' : '#ff7a2f') : '#ff3b30';
         c.beginPath(); c.moveTo(this.sx(p.x1), this.sy(p.y1)); c.lineTo(this.sx(p.x2), this.sy(p.y2)); c.stroke(); c.setLineDash([]);
         const L = Math.hypot(p.x2 - p.x1, p.y2 - p.y1), ang = Math.atan2(p.y2 - p.y1, p.x2 - p.x1) * 180 / Math.PI;
         this.label(`${(L * 1000).toFixed(0)} mm  ${ang.toFixed(0)}°`, this.sx(p.x2) + 12, this.sy(p.y2) - 12, p.ok ? '#ffd2b8' : '#ff3b30');
@@ -131,6 +147,38 @@
       c.beginPath(); c.moveTo(X1, Y); c.lineTo(X2, Y); c.moveTo(X1, Y - 5); c.lineTo(X1, Y + 5); c.moveTo(X2, Y - 5); c.lineTo(X2, Y + 5); c.stroke();
       c.fillStyle = '#7d90a5'; c.font = '10px ui-monospace, Menlo, monospace'; c.textAlign = 'center';
       c.fillText(text, (X1 + X2) / 2, Y + 14); c.textAlign = 'left';
+    }
+
+    // ---------- bodywork ----------
+    bodyFill(loops, paint, alpha) {
+      const c = this.ctx;
+      c.save(); c.globalAlpha = alpha; c.fillStyle = paint || '#d8452b';
+      for (const L of loops) {
+        if (L.some(n => !n)) continue;
+        c.beginPath(); L.forEach((n, i) => (i ? c.lineTo(this.sx(n.x), this.sy(n.y)) : c.moveTo(this.sx(n.x), this.sy(n.y)))); c.closePath(); c.fill();
+      }
+      c.restore();
+    }
+
+    panel(x1, y1, x2, y2, color, hi, carbon) {
+      const c = this.ctx, w = Math.max(3, 0.03 * this.cam.s);
+      const X1 = this.sx(x1), Y1 = this.sy(y1), X2 = this.sx(x2), Y2 = this.sy(y2);
+      c.save(); c.lineCap = 'round';
+      if (hi) { c.strokeStyle = '#7fd3ff'; c.lineWidth = w + 6; c.globalAlpha = 0.6; c.beginPath(); c.moveTo(X1, Y1); c.lineTo(X2, Y2); c.stroke(); c.globalAlpha = 1; }
+      c.strokeStyle = '#06080b'; c.lineWidth = w + 2; c.beginPath(); c.moveTo(X1, Y1); c.lineTo(X2, Y2); c.stroke();
+      c.strokeStyle = color; c.lineWidth = w; c.beginPath(); c.moveTo(X1, Y1); c.lineTo(X2, Y2); c.stroke();
+      if (carbon) { c.strokeStyle = 'rgba(255,255,255,0.18)'; c.setLineDash([2, 3]); c.lineWidth = w * 0.4; c.beginPath(); c.moveTo(X1, Y1); c.lineTo(X2, Y2); c.stroke(); }
+      c.restore();
+    }
+
+    arrow(x, y, fx, fy, scale, color) {   // world-space force arrow, scale = metres per newton
+      const c = this.ctx, X = this.sx(x), Y = this.sy(y);
+      const ex = X + fx * scale * this.cam.s, ey = Y - fy * scale * this.cam.s, L = Math.hypot(ex - X, ey - Y);
+      if (L < 3) return;
+      const ux = (ex - X) / L, uy = (ey - Y) / L, hd = Math.min(8, L * 0.4);
+      c.strokeStyle = color; c.fillStyle = color; c.lineWidth = 2;
+      c.beginPath(); c.moveTo(X, Y); c.lineTo(ex - ux * hd, ey - uy * hd); c.stroke();
+      c.beginPath(); c.moveTo(ex, ey); c.lineTo(ex - ux * hd - uy * hd * 0.55, ey - uy * hd + ux * hd * 0.55); c.lineTo(ex - ux * hd + uy * hd * 0.55, ey - uy * hd - ux * hd * 0.55); c.closePath(); c.fill();
     }
 
     // ---------- parts ----------
@@ -218,6 +266,18 @@
       const c = this.ctx; c.beginPath(); c.arc(this.sx(x), this.sy(y), 3, 0, TAU); c.fillStyle = '#ffd2b8'; c.fill();
     }
 
+    tank(x, y, ang, fill, type, L) {
+      const w = 0.3 + L / 200, h = 0.14 + L / 900;
+      this.local(x, y, ang, (c, px) => {
+        c.fillStyle = '#1a2129'; c.strokeStyle = type === 'cell' ? '#3ddc84' : '#9aa6b4'; c.lineWidth = 2 * px;
+        c.beginPath(); c.rect(-w / 2, -h / 2, w, h); c.fill();
+        c.fillStyle = '#c9a227'; c.fillRect(-w / 2, -h / 2, w, h * Math.max(0, Math.min(1, fill)));
+        c.beginPath(); c.rect(-w / 2, -h / 2, w, h); c.stroke();
+        c.scale(1, -1); c.fillStyle = '#fff'; c.font = `bold ${10 * px}px ui-monospace, Menlo, monospace`; c.textAlign = 'center';
+        c.fillText('⛽', 0, 3.5 * px);
+      });
+    }
+
     driver(x, y, ang) {
       this.local(x, y, ang, (c, px) => {
         c.lineCap = 'round'; c.lineJoin = 'round';
@@ -232,21 +292,15 @@
       });
     }
 
-    wing(x, y, ang, spec) {
+    wing(x, y, ang, spec, cp) {
       if (!spec) return;
+      const sh = GT.wingShape(spec);
       this.local(x, y, ang, (c) => {
-        c.fillStyle = '#1d2229'; c.strokeStyle = '#ff7a2f'; c.lineWidth = 0.012;
-        if (spec.kind === 'splitter') {
-          c.beginPath(); c.moveTo(-0.05, -0.03); c.lineTo(0.42, -0.06); c.lineTo(0.42, -0.04); c.lineTo(-0.05, 0); c.closePath(); c.fill(); c.stroke();
-          return;
-        }
-        const big = spec.ClA > 1.2 ? 1.25 : spec.ClA < 0.4 ? 0.6 : 1;
-        const h = spec.ClA < 0.4 ? 0.08 : 0.32 * big, ch = 0.5 * big;
-        c.strokeStyle = '#3b4552'; c.lineWidth = 0.03; c.beginPath(); c.moveTo(0, 0); c.lineTo(-0.05, h); c.stroke();
-        c.save(); c.translate(-0.1, h + 0.02); c.rotate(-0.16);
-        c.beginPath(); c.moveTo(-ch / 2, 0); c.quadraticCurveTo(0, 0.09 * big, ch / 2, 0.01); c.quadraticCurveTo(0, -0.02, -ch / 2, 0); c.fill();
-        c.strokeStyle = '#ff7a2f'; c.lineWidth = 0.012; c.stroke();
-        c.restore();
+        c.lineCap = 'round'; c.lineJoin = 'round';
+        if (sh.strut) { c.strokeStyle = '#3b4552'; c.lineWidth = 0.03; c.beginPath(); c.moveTo(sh.strut[0][0], sh.strut[0][1]); c.lineTo(sh.strut[1][0], sh.strut[1][1]); c.stroke(); }
+        const line = () => { c.beginPath(); sh.line.forEach(([px, py], i) => (i ? c.lineTo(px, py) : c.moveTo(px, py))); };
+        c.strokeStyle = '#ff7a2f'; c.lineWidth = sh.thick + 0.025; line(); c.stroke();
+        c.strokeStyle = cp != null ? GT.cpColor(cp) : '#1d2229'; c.lineWidth = sh.thick; line(); c.stroke();
       });
     }
 
@@ -299,21 +353,56 @@
 
     drawSim(sim, o) {
       const N = sim.nodes, ang = sim.pitch;
+      const live = sim.loops.filter(L => L.every((id, i) => { const nx = L[(i + 1) % L.length]; return sim.beams.some(b => b.panel && !b.broken && ((b.a === id && b.b === nx) || (b.b === id && b.a === nx))); }));
+      this.bodyFill(live.map(L => L.map(i => N[i])), sim.paint, 0.5);
       for (const w of sim.wheels) { const n = N[w.n]; this.wheel(n.x, n.y, w.r, w.ang, { driven: w.driven, sliding: w.sliding && Math.abs(w.slip) > 1.5, brake: w.brakeName }); }
       for (const b of sim.beams) {
         if (b.broken) continue;
         const A = N[b.a], B = N[b.b];
+        if (b.panel) { this.panel(A.x, A.y, B.x, B.y, o.stress ? GT.stressColor(b.ratio) : b.color, false, false); continue; }
         this.tube(A.x, A.y, B.x, B.y, b.D, o.stress ? GT.stressColor(b.ratio) : b.color, false, b.brittle);
         if (b.yielded) { const c = this.ctx; c.fillStyle = '#ff9f0a'; c.beginPath(); c.arc(this.sx((A.x + B.x) / 2), this.sy((A.y + B.y) / 2), 3, 0, TAU); c.fill(); }
       }
       for (const s of sim.springs) { const A = N[s.a], B = N[s.b]; this.coil(A.x, A.y, B.x, B.y, false, s.len < s.Lmin + 0.004); }
       for (const w of sim.wings) { const n = N[w.n]; this.wing(n.x, n.y, ang, w); }
       if (sim.engine) { const n = N[sim.engine.n]; this.engine(n.x, n.y, ang, sim.engine.spec); }
+      if (sim.tankN >= 0) { const n = N[sim.tankN]; this.tank(n.x, n.y, ang, sim.fuelKg / GT.FUEL_DENSITY / sim.tankL, sim.tankType === GT.TANK_TYPES.cell ? 'cell' : 'steel', sim.tankL); }
       const dn = N[sim.driver]; if (dn) this.driver(dn.x, dn.y, ang);
       const c = this.ctx, r = Math.max(2, Math.min(4, this.cam.s * 0.02));
       c.fillStyle = '#e8edf2';
       for (const n of N) { c.beginPath(); c.arc(this.sx(n.x), this.sy(n.y), r, 0, TAU); c.fill(); }
+      if (o.aero) {
+        for (const it of sim.aeroItems) {
+          if (!it.fx && !it.fy) continue;
+          let x = 0, y = 0; for (const i of it.n) { x += N[i].x; y += N[i].y; } x /= it.n.length; y /= it.n.length;
+          this.arrow(x, y, it.fx, it.fy, 0.0012, it.fy < 0 ? 'rgba(127,211,255,0.9)' : 'rgba(255,160,90,0.9)');
+        }
+      }
       this.particles(sim.particles);
+    }
+
+    tunnelField(T, img, off) {
+      const c = this.ctx;
+      off.getContext('2d').putImageData(img, 0, 0);
+      c.save(); c.imageSmoothingEnabled = true;
+      const X = this.sx(T.x0), Y = this.sy(T.NY * T.dx);
+      c.drawImage(off, X, Y, T.NX * T.dx * this.cam.s, T.NY * T.dx * this.cam.s);
+      c.restore();
+      // rolling road
+      const gy = this.sy(0), ph = (T.step * T.U * T.dx * 0.6) % 1;
+      c.fillStyle = '#15181d'; c.fillRect(X, gy, T.NX * T.dx * this.cam.s, 10);
+      c.strokeStyle = '#3a4250'; c.lineWidth = 2; c.beginPath();
+      for (let x = T.x0 - ph; x < T.x0 + T.NX * T.dx; x += 1) { c.moveTo(this.sx(x), gy + 5); c.lineTo(this.sx(x + 0.45), gy + 5); }
+      c.stroke();
+    }
+
+    smoke(T) {
+      const c = this.ctx, S = T.smoke, s = this.cam.s * T.dx;
+      const X0 = this.sx(T.x0), Y0 = this.sy(0);
+      for (let p = 0; p < S.length; p += 3) {
+        c.fillStyle = S[p + 2] % 2 ? 'rgba(255,255,255,0.75)' : 'rgba(255,214,120,0.75)';
+        c.fillRect(X0 + (S[p] + 0.5) * s - 1, Y0 - (S[p + 1] + 0.5) * s - 1, 2, 2);
+      }
     }
 
     particles(P) {

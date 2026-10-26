@@ -219,6 +219,43 @@
       headline: r => (r.reason ? `stalled at ${((r.st.maxGrade || 0) * 100).toFixed(0)} %` : `top in ${r.t.toFixed(2)} s`),
     },
 
+    endurance: {
+      name: 'Endurance stint', icon: '⛽', sub: '5 km: heat, fuel, brakes',
+      desc: '5 km at race pace: long straights, three big climbs and six hairpin brake zones. Tests cooling, fuel load vs. burn, starvation and brakes.',
+      maxTime: 300,
+      corners: [700, 1500, 2200, 3000, 3700, 4400],
+      terrain() {
+        const t = new Terrain(-80, 5300);
+        t.add(x => hill(x, 850, 500, 18) + hill(x, 2350, 400, 12) + hill(x, 3800, 550, 26));
+        t.mark(0, 'START', '#ff7a2f');
+        this.corners.forEach(c => t.mark(c, 'HAIRPIN', '#ff3b30'));
+        return t.mark(5000, 'FINISH', '#ff7a2f');
+      },
+      control(r) {
+        const v = r.speed, d = r.dist;
+        let target = 400 / KMH;
+        for (const c of GT.TESTS.endurance.corners) {
+          const brakeDist = Math.max(0, v * v - (70 / KMH) ** 2) / (2 * 9) + 25;
+          if (d > c - brakeDist && d < c + 30) target = 70 / KMH;
+        }
+        const err = target - v;
+        return { throttle: clamp(err * 0.4, 0, 1), brake: err < -2 ? clamp(-err * 0.15, 0, 1) : 0 };
+      },
+      update(r) {
+        const e = r.sim.engine;
+        if (e && e.derate < 1) r.st.derateT = (r.st.derateT || 0) + r.dt;
+        if (r.dist >= 5000) r.finish();
+      },
+      results(r) {
+        return [
+          ['Stint time', r.done && !r.reason ? `${r.t.toFixed(1)} s` : '—'],
+          ['Average speed', `${(Math.max(0, r.dist) / r.t * KMH).toFixed(1)} km/h`],
+          ['Time power-derated (hot)', `${(r.st.derateT || 0).toFixed(1)} s`],
+        ];
+      },
+      headline: r => (r.reason ? 'DNF' : `${r.t.toFixed(1)} s, ${(r.sim.fuelUsed / GT.FUEL_DENSITY).toFixed(2)} L`),
+    },
+
     free: {
       name: 'Free drive', icon: '🎮', sub: '2.4 km mixed terrain', free: true,
       desc: 'You drive. → / D / W throttle, ← / A / S brake & reverse, Space brake. Hills, bumps, a jump and a whoops section.',
@@ -273,10 +310,19 @@
       const ok = !this.reason && (t.pass ? t.pass(this) : true);
       const rows = t.results(this).concat([
         ['Peak frame utilisation', `${(this.m.util * 100).toFixed(0)} %`],
-        ['Tubes broken', `${s.broken} / ${s.beams.length}`],
+        ['Tubes broken', `${s.broken} / ${s.tubeCount}`],
+        ['Body panels torn', `${s.torn || 0}`],
+        ['Aero model', s.aeroSource === 'measured' ? `wind-tunnel (CdA ${s.aeroTotals.CdA.toFixed(2)}, ClA ${s.aeroTotals.ClA.toFixed(2)})` : `estimate (CdA ${s.aeroTotals.CdA.toFixed(2)})`],
         ['Peak long. g (accel / brake)', `${this.m.gl.toFixed(2)} / ${this.m.gb.toFixed(2)}`],
         ['Peak vertical g (driver)', `${this.m.gv.toFixed(1)}`],
       ]);
+      const e = s.engine;
+      if (e) {
+        const km = Math.max(0.001, this.dist / 1000);
+        if (e.spec.ev) rows.push(['Energy used', `${((s.battery0 - s.battery) / 3.6e6).toFixed(2)} kWh (${((s.battery0 - s.battery) / 3.6e6 / km * 100).toFixed(1)} kWh/100 km)`]);
+        else { const L = s.fuelUsed / GT.FUEL_DENSITY; rows.push(['Fuel used', `${L.toFixed(2)} L (${(L / km * 100).toFixed(1)} L/100 km)`], ['Fuel left', `${(s.fuelKg / GT.FUEL_DENSITY).toFixed(1)} L`]); }
+        rows.push(['Peak coolant temp', `${e.peakTemp.toFixed(0)} °C`]);
+      }
       this.result = { id: this.id, name: t.name, ok, free: !!t.free, reason: this.reason, rows, headline: t.headline(this), events: s.events.slice() };
     }
 

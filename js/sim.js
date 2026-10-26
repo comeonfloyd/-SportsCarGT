@@ -52,6 +52,17 @@
           brittle: p.mat.brittle, lambda: 0, T: 0, ratio: 0, peak: 0, broken: false, yielded: false, color: p.mat.color, D: p.tube.D });
       }
 
+      this.tubeCount = this.beams.length;
+      // body panels: soft links that carry aero load into the frame and can tear off
+      this.panelIdx = new Map();
+      for (const p of d.panels || []) {
+        const pp = GT.panelProps(nm, p);
+        if (!pp || pp.L < 1e-3) continue;
+        this.panelIdx.set(p.id, this.beams.length);
+        this.beams.push({ id: p.id, panel: true, a: I(p.a), b: I(p.b), L0: pp.L, Lorig: pp.L, alpha: 1 / pp.k, Ft: pp.tear, Fc: pp.tear, buckling: false,
+          brittle: true, lambda: 0, T: 0, ratio: 0, peak: 0, broken: false, yielded: false, color: pp.mat.color, D: 0.01 });
+      }
+
       this.wheels = [];
       for (const w of d.wheels) {
         if (!this.idx.has(w.node)) continue;
@@ -92,13 +103,29 @@
       }
 
       if (d.engine && this.idx.has(d.engine.node)) {
-        const spec = GT.ENGINES[d.engine.type] || GT.ENGINES.i4t;
-        this.engine = { spec, n: I(d.engine.node), final: d.setup.finalDrive || spec.final, gear: 1, shiftT: 0, rpm: spec.idle, rpmC: 0, tq: 0,
-          peakT: GT.peakTorque(spec), flywheel: spec.ev ? 0.04 : 0.13 };
+        const pt = GT.powertrain(d), spec = pt.spec;
+        this.engine = { spec, pt, n: I(d.engine.node), final: pt.final, gear: 1, shiftT: 0, rpm: spec.idle, rpmC: 0, tq: 0, power: 0,
+          peakT: GT.peakTorque(spec), flywheel: spec.ev ? 0.04 : 0.13,
+          temp: 90, peakTemp: 90, derate: 1, wear: 0, knock: 0, work: 0, ersWork: 0, regen: 0, tcCut: 0, tcActive: false, tcLight: false,
+          ers: spec.ers ? spec.ers.store : 0, ersOn: false, starving: false, dead: null, outFuel: false };
       } else this.engine = null;
+      // fuel / battery
+      const mmFuel = mm.fuelKg || 0;
+      this.fuelKg = mmFuel; this.fuel0 = mmFuel; this.fuelUsed = 0;
+      this.tankN = d.tank && this.idx.has(d.tank.node) ? I(d.tank.node) : -1;
+      this.tankType = d.tank ? (GT.TANK_TYPES[d.tank.type] || GT.TANK_TYPES.steel) : null;
+      this.tankL = d.tank ? (GT.TANKS[d.tank.size] || GT.TANKS.l40).L : 0;
+      this.battery = this.engine && this.engine.spec.ev ? this.engine.spec.battery * 3.6e6 : 0;
+      this.battery0 = this.battery;
+      this.absActive = false; this.absLight = false;
       this.driver = d.driver && this.idx.has(d.driver.node) ? I(d.driver.node) : 0;
       this.wings = d.wings.filter(w => this.idx.has(w.node) && GT.WINGS[w.type]).map(w => Object.assign({ n: I(w.node), type: w.type }, GT.WINGS[w.type]));
-      this.body = GT.BODIES[d.setup.body] || GT.BODIES.none;
+      this.paint = d.setup.paint || '#d8452b';
+      this.loops = GT.panelLoops(d).map(l => l.map(I));
+      const am = GT.aeroModel(d);
+      this.aeroSource = am.source; this.aeroTotals = am.totals;
+      this.aeroItems = am.items.map(it => ({ label: it.label, kind: it.kind, ref: it.ref, cx: it.cx, cy: it.cy, n: it.nodes.map(I),
+        beam: it.kind === 'panel' ? this.panelIdx.get(it.ref) : undefined, fx: 0, fy: 0 }));
 
       // Pitch reference: extreme non-hub nodes.
       let lo = -1, hi = -1;
@@ -127,8 +154,8 @@
     driverX() { return this.nodes.length ? this.nodes[this.driver].x : 0; }
 
     ratio() {
-      const e = this.engine;
-      return e.gear === -1 ? -e.spec.gears[0] * 0.95 * e.final : e.spec.gears[e.gear - 1] * e.final;
+      const e = this.engine, g = e.pt.ratios;
+      return e.gear === -1 ? -g[0] * 0.95 * e.final : g[e.gear - 1] * e.final;
     }
 
     step(dt, inp) {
@@ -142,27 +169,33 @@
       this.post(dt);
     }
 
+    // Aero: each part (panel, wing, cockpit, exposed tube, wheel) pushes on its own nodes.
     aero() {
       const N = this.nodes;
       let mv = 0; for (const n of N) mv += n.m * n.vx;
-      const v = mv / this.M, q = 0.5 * GT.RHO * v * v, sg = Math.sign(v);
-      const dragA = q * this.body.CdA / this.M * sg, liftA = q * (this.body.ClA || 0) / this.M;
-      for (const n of N) { n.fx = -dragA * n.m; n.fy = -liftA * n.m; }
-      let df = q * (this.body.ClA || 0);
-      for (const w of this.wings) { const n = N[w.n]; n.fx -= q * w.CdA * sg; n.fy -= q * w.ClA; df += q * w.ClA; }
-      this.downforce = df;
+      const v = mv / this.M, q = 0.5 * GT.RHO * v * v, sg = v < 0 ? -1 : 1;
+      for (const n of N) { n.fx = 0; n.fy = 0; }
+      let df = 0, drag = 0;
+      for (const it of this.aeroItems) {
+        if (it.beam !== undefined && this.beams[it.beam].broken) { it.fx = it.fy = 0; continue; }
+        it.fx = q * it.cx * sg; it.fy = q * it.cy;
+        const k = 1 / it.n.length;
+        for (const i of it.n) { N[i].fx += it.fx * k; N[i].fy += it.fy * k; }
+        df -= it.fy; drag -= it.fx * sg;
+      }
+      this.downforce = df; this.drag = drag;
     }
 
     gearbox(dt, inp) {
       const e = this.engine; if (!e) return;
       if (e.shiftT > 0) e.shiftT -= dt;
       if (inp.reverse) e.gear = -1; else if (e.gear === -1) e.gear = 1;
-      const g = e.spec.gears, rl = e.spec.redline;
+      const pt = e.pt, g = pt.ratios, rl = pt.redline;
       if (!e.spec.ev && e.gear > 0 && e.shiftT <= 0 && this.driven.length) {
         // shift on road speed, not wheel speed, so wheelspin bounces off the limiter instead of hunting gears
         const rpmG = Math.max(0, this.speed) / this.driven[0].r * this.ratio() * RPM;
-        if (rpmG > rl * 0.95 && e.gear < g.length) { e.gear++; e.shiftT = 0.16; }
-        else if (e.gear > 1 && rpmG < rl * 0.5 && rpmG * g[e.gear - 2] / g[e.gear - 1] < rl * 0.85) { e.gear--; e.shiftT = 0.12; }
+        if (rpmG > rl * pt.shiftFrac && e.gear < g.length) { e.gear++; e.shiftT = pt.shift; }
+        else if (e.gear > 1 && rpmG < rl * 0.5 && rpmG * g[e.gear - 2] / g[e.gear - 1] < rl * 0.85) { e.gear--; e.shiftT = pt.shift; }
       }
       const r = this.ratio(), nd = this.driven.length || 1, locked = e.shiftT <= 0;
       for (const w of this.driven) w.Ieff = w.I + (locked ? e.flywheel * r * r / nd : 0);
@@ -186,29 +219,53 @@
 
     driveTorque(h, inp) {
       const thr = clamp(inp.throttle || 0, 0, 1), brk = clamp(inp.brake || 0, 0, 1);
-      const e = this.engine;
+      const e = this.engine, v = Math.abs(this.speed);
       if (e && this.driven.length) {
         let om = 0; for (const w of this.driven) om += w.omega; om /= this.driven.length;
-        const ratio = this.ratio(), sp = e.spec;
+        const ratio = this.ratio(), sp = e.spec, pt = e.pt;
         const rpmC = om * ratio * RPM;
         e.rpmC = rpmC;
+        const alive = !e.dead && (sp.ev ? this.battery > 0 : this.fuelKg > 0);
+        const th = alive ? thr : 0;
         let rpm, tq;
         if (sp.ev) {
           rpm = Math.abs(rpmC);
-          tq = thr > 0.01 ? thr * GT.curveAt(sp.curve, rpm) : -0.08 * e.peakT * Math.min(1, rpm / 1000) * Math.sign(rpmC);  // regen
+          tq = th > 0.01 ? th * GT.ptTorque(pt, rpm) : -0.08 * e.peakT * Math.min(1, rpm / 1000) * Math.sign(rpmC);  // regen
         } else {
-          const launch = sp.idle + thr * (0.45 * sp.redline - sp.idle);
-          if (rpmC < launch) { rpm = Math.max(sp.idle, launch); tq = thr > 0.01 ? thr * GT.curveAt(sp.curve, rpm) : 0; }   // clutch slipping / open
-          else { rpm = rpmC; tq = thr > 0.01 ? thr * GT.curveAt(sp.curve, rpm) : -0.1 * e.peakT * (rpm / sp.redline); }  // engine braking
+          const launch = sp.idle + th * (pt.launchRpm - sp.idle);
+          if (rpmC < launch) { rpm = Math.max(sp.idle, launch); tq = th > 0.01 ? th * GT.ptTorque(pt, rpm) : 0; }   // clutch slipping / open
+          else { rpm = rpmC; tq = th > 0.01 ? th * GT.ptTorque(pt, rpm) : -0.1 * e.peakT * (rpm / pt.redline); }  // engine braking
+          if (!alive) rpm = Math.max(0, rpmC);
         }
-        if (rpm >= sp.redline && tq > 0) tq = 0;   // limiter
+        if (rpm >= pt.redline && tq > 0) tq = 0;   // limiter
         if (e.shiftT > 0) tq = 0;
+        if (tq > 0) tq *= e.derate * (e.starving ? 0.25 : 1);
+        // hybrid: electric boost from the energy store
+        e.ersOn = false;
+        if (sp.ers && th > 0.9 && e.ers > 0 && e.shiftT <= 0 && rpm > 1000) {
+          const w = rpm / RPM, add = Math.min(sp.ers.kw * 1000 / w, 250);
+          tq += add; e.ers -= add * w * h; e.ersWork += add * w * h; e.ersOn = true;
+        }
+        // traction control (or launch control below 20 km/h): cut torque while driven wheels over-slip
+        const target = pt.tc || (pt.launchCtl && v < 6 ? 0.15 : 0);
+        if (target && tq > 0) {
+          let slip = 0;
+          for (const w of this.driven) if (w.contact) slip = Math.max(slip, (w.omega * w.r - v) / Math.max(v, 3));
+          e.tcCut = slip > target ? Math.min(0.95, e.tcCut + 60 * h) : Math.max(0, e.tcCut - 25 * h);
+          tq *= 1 - e.tcCut;
+          if (e.tcCut > 0.05) e.tcActive = true;
+        } else e.tcCut = 0;
         e.rpm = rpm; e.tq = tq;
+        if (tq > 0) e.work += tq * rpm / RPM * h; else if (sp.ev) e.regen += -tq * rpm / RPM * h;
         const Tw = tq * ratio * 0.9 / this.driven.length;
         for (const w of this.driven) w.omega += Tw * h / w.Ieff;
+        if (sp.ers && brk > 0 && v > 5) e.ers = Math.min(sp.ers.store, e.ers + sp.ers.kw * 1000 * brk * 0.6 * h);   // harvest under braking
       }
+      const abs = e && e.pt.abs;
       for (const w of this.wheels) {
-        let dw = brk * w.brakeT * h / w.Ieff;
+        let bt = brk * w.brakeT;
+        if (abs && bt > 0 && w.contact && v > 2 && (v - w.omega * w.r) / v > 0.12) { bt *= 0.2; this.absActive = true; }   // ABS dumps pressure
+        let dw = bt * h / w.Ieff;
         if (w.contact) dw += 0.012 * w.load * w.r * h / w.Ieff;   // rolling resistance
         if (Math.abs(w.omega) <= dw) w.omega = 0; else w.omega -= Math.sign(w.omega) * dw;
       }
@@ -331,6 +388,7 @@
         b.ratio = r; if (r > b.peak) b.peak = r;
         if (r <= 1) continue;
         const kN = (Math.abs(b.T) / 1000).toFixed(1);
+        if (b.panel) { this.breakBeam(b, 'tear', `Body panel #${b.id} TORE OFF (${kN} kN)`); continue; }
         if (b.T < 0 && b.buckling) this.breakBeam(b, 'buckle', `Tube #${b.id} BUCKLED at ${kN} kN compression`);
         else if (b.brittle) this.breakBeam(b, 'snap', `Carbon tube #${b.id} SNAPPED at ${kN} kN`);
         else {
@@ -342,8 +400,50 @@
       }
     }
 
+    // Fuel burn, battery, engine temperature, mechanical abuse — once per frame.
+    powertrainFrame(dt) {
+      const e = this.engine, N = this.nodes;
+      this.absLight = this.absActive; this.absActive = false;
+      if (!e) return;
+      e.tcLight = e.tcActive; e.tcActive = false;
+      const sp = e.spec, pt = e.pt, P = (e.work - e.ersWork) / dt, Pall = e.work / dt;
+      e.work = 0; e.ersWork = 0; e.power = Pall;
+      if (sp.ev) {
+        this.battery = Math.max(0, this.battery - (P / 0.92 + 300) * dt + e.regen * 0.7);
+        e.regen = 0;
+        if (this.battery <= 0 && !e.outFuel) { e.outFuel = true; this.event('fuel', 'BATTERY FLAT — no drive'); }
+      } else if (!e.dead && this.fuelKg > 0) {
+        const kg = (Math.max(0, P) / 1000 * pt.bsfc / 3.6e6 + 0.0003) * dt;   // + idle flow
+        const burn = Math.min(kg, this.fuelKg);
+        this.fuelKg -= burn; this.fuelUsed += burn;
+        if (this.tankN >= 0) { const n = N[this.tankN]; n.m = Math.max(0.5, n.m - burn); n.w = 1 / n.m; }
+        if (this.fuelKg <= 0 && !e.outFuel) { e.outFuel = true; this.event('fuel', 'OUT OF FUEL — engine dead'); }
+        // fuel slosh: a low tank unports the pickup under hard g
+        const L = this.fuelKg / GT.FUEL_DENSITY, slosh = Math.abs(this.gLong) > 0.6 || Math.abs(this.gVert - 1) > 0.9;
+        const starving = L > 0 && L < this.tankType.starveL && slosh && this.t > 1;
+        if (starving && !e.starving && this.t - (e.lastStarve || -9) > 2) { this.event('fuel', `Fuel starvation (${L.toFixed(1)} L sloshing) — engine coughs`); e.lastStarve = this.t; }
+        e.starving = starving;
+      }
+      // coolant temperature: heat in ≈ shaft power, radiator rejects with airflow
+      const Pk = pt.peakKw * 1000, C = Math.max(3e4, 0.3 * Pk), kRad = pt.radiator.factor * Pk / 180;
+      const qin = (sp.ev ? 0.12 : 0.9) * Math.max(0, Pall) * pt.heatMul + (sp.ev ? 0 : 2500);
+      let qout = kRad * (e.temp - 25) * (0.3 + Math.abs(this.speed) / 32);
+      qout *= clamp((e.temp - 87) / 8, 0, 1);   // thermostat opens 87–95 °C
+      e.temp += (qin - qout) / C * dt;
+      e.peakTemp = Math.max(e.peakTemp, e.temp);
+      e.derate = e.temp > 115 ? clamp(1 - (e.temp - 115) / 15, 0.2, 1) : 1;
+      if (e.temp > 112 && !e.hotWarned) { e.hotWarned = true; this.event('heat', `Engine at ${e.temp.toFixed(0)} °C — derating soon`); }
+      const kill = msg => { if (e.dead) return; e.dead = msg; this.event('engine', msg); if (!this.crashed) this.crashed = msg; };
+      if (e.temp > 130) kill('Engine overheated and seized (130 °C)');
+      if (!sp.ev && e.rpm > pt.stockRedline + 50) { e.wear += ((e.rpm - pt.stockRedline) / 500) ** 2 * dt; if (e.wear > 6) kill('Over-revved — valve met piston'); }
+      if (pt.knockRisk && e.temp > 105 && Pall > 0.7 * Pk) { e.knock += dt; if (e.knock > 2.5) kill('Detonation — holed a piston (race map + lean mix running hot)'); }
+      if (this.tankN >= 0 && this.tankType.rupture && N[this.tankN].cd > 0 && Math.abs(this.speed) > 3 && !this.crashed)
+        this.crashed = 'Fuel tank scraped open — FIRE (fit an FIA bag cell or mount it higher)';
+    }
+
     breakBeam(b, kind, msg) {
-      b.broken = true; this.broken++;
+      b.broken = true;
+      if (b.panel) this.torn = (this.torn || 0) + 1; else this.broken++;
       const A = this.nodes[b.a], B = this.nodes[b.b];
       const x = (A.x + B.x) / 2, y = (A.y + B.y) / 2;
       for (let i = 0; i < 18; i++) this.emit(x, y, (Math.random() - 0.5) * 8, Math.random() * 6, 0.5 + Math.random() * 0.5, 'spark', 2);
@@ -378,9 +478,10 @@
         this.pitch = Math.atan2(b.y - a.y, b.x - a.x) - this.ang0;
       }
       if (dn.cd > 0 && !this.crashed && this.t > 0.2) this.crashed = 'Driver hit the ground (rollover / frame collapse)';
+      this.powertrainFrame(dt);
 
       let mu = 0;
-      for (const b of this.beams) if (!b.broken && b.ratio > mu) mu = b.ratio;
+      for (const b of this.beams) if (!b.panel && !b.broken && b.ratio > mu) mu = b.ratio;
       this.maxUtil = mu;
       for (const s of this.springs) { if (s.bump && !s.bumpPrev) this.bumpHits++; s.bumpPrev = s.bump; s.bump = false; }
       for (const n of N) {

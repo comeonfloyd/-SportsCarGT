@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Chassis Lab GT</title>
-  <link rel="stylesheet" href="css/style.css">
+  <link rel="stylesheet" href="css/style.css?v=5">
 </head>
 <body>
   <header id="topbar">
@@ -12,6 +12,7 @@
     <nav class="modes">
       <button id="modeBuild" class="active">① Garage</button>
       <button id="modeTest">② Proving ground</button>
+      <button id="modeTunnel">③ Wind tunnel</button>
     </nav>
     <div class="filebar">
       <select id="loadSel" title="Load a preset or a saved design"></select>
@@ -33,6 +34,10 @@
         <label class="field">Section (OD × wall, mm)<select id="tubeSel"></select></label>
         <div id="tubeInfo" class="small mono"></div>
         <button id="btnApplyAll" class="wide">Apply stock to every tube</button>
+        <h3>Bodywork</h3>
+        <label class="field">Panel material<select id="panelSel"></select></label>
+        <button id="btnWrap" class="wide">Wrap frame in panels</button>
+        <div class="grid2" style="margin-top:6px"><button id="btnPanelsAll">Apply to all</button><button id="btnClearBody">Strip body</button></div>
         <h3>View</h3>
         <label class="check"><input type="checkbox" id="snapChk" checked> Snap to 5 cm grid <kbd>G</kbd></label>
         <label class="check"><input type="checkbox" id="labelChk"> Node numbers</label>
@@ -50,6 +55,8 @@
         <h3>Options</h3>
         <label class="check"><input type="checkbox" id="stressChk" checked> Stress colours</label>
         <label class="check"><input type="checkbox" id="slowChk"> Slow motion ¼× <kbd>M</kbd></label>
+        <label class="check"><input type="checkbox" id="ffChk"> Fast-forward 4× <kbd>F</kbd></label>
+        <label class="check"><input type="checkbox" id="aeroChk" checked> Aero force arrows</label>
         <div class="legend">
           <div class="bar"></div>
           <div class="mono small"><span>0 %</span><span>50 %</span><span>100 % → fail</span></div>
@@ -59,6 +66,26 @@
           <p>Free drive: <kbd>→</kbd>/<kbd>D</kbd> gas · <kbd>←</kbd>/<kbd>A</kbd> brake &amp; reverse · <kbd>Space</kbd> brake</p>
         </div>
         <button id="btnBack" class="wide">← Back to garage</button>
+      </div>
+      <div id="tunnelLeft" hidden>
+        <h3>Wind tunnel</h3>
+        <p class="small dim" style="margin-top:0">2D lattice-Boltzmann CFD of the car's side section. 200 km/h, rolling road. Each panel's load is measured and fed to the driving physics.</p>
+        <button id="btnTunnelRun" class="wide primary">↻ Re-run tunnel <kbd>R</kbd></button>
+        <button id="btnTunnelPause" class="wide">Pause / resume <kbd>P</kbd></button>
+        <h3>Visualise</h3>
+        <label class="check"><input type="radio" name="tview" value="speed" checked> Air speed</label>
+        <label class="check"><input type="radio" name="tview" value="pressure"> Pressure (Cp)</label>
+        <label class="check"><input type="radio" name="tview" value="vorticity"> Vorticity (swirl)</label>
+        <label class="check"><input type="checkbox" id="smokeChk" checked> Smoke streaklines</label>
+        <div class="legend">
+          <div class="bar speedbar"></div><div class="mono small"><span>still</span><span>freestream</span><span>1.7×+</span></div>
+          <div class="bar cpbar" style="margin-top:8px"></div><div class="mono small"><span>suction</span><span>Cp 0</span><span>stagnation</span></div>
+        </div>
+        <div class="help">
+          <p>Panels are tinted by surface pressure: <span style="color:#7fd3ff">blue sucks</span>, <span style="color:#ff8b6b">red pushes</span>.</p>
+          <p>Low pressure under the floor = downforce. Mount wings in clean air, not in the roof's wake.</p>
+        </div>
+        <button id="btnTunnelBack" class="wide">← Back to garage</button>
       </div>
     </aside>
 
@@ -75,6 +102,9 @@
         <section id="stats" class="panel"></section>
         <section id="warnings" class="panel"></section>
       </div>
+      <div id="tunnelRight" hidden>
+        <section id="tresults" class="panel"></section>
+      </div>
       <div id="testRight" hidden>
         <section id="results" class="panel"></section>
         <section id="history" class="panel"></section>
@@ -82,11 +112,13 @@
     </aside>
   </main>
 
-  <script src="js/data.js"></script>
-  <script src="js/model.js"></script>
-  <script src="js/sim.js"></script>
-  <script src="js/tests.js"></script>
-  <script src="js/render.js"></script>
-  <script src="js/main.js"></script>
+  <script src="js/data.js?v=5"></script>
+  <script src="js/powertrain.js?v=5"></script>
+  <script src="js/model.js?v=5"></script>
+  <script src="js/aero.js?v=5"></script>
+  <script src="js/sim.js?v=5"></script>
+  <script src="js/tests.js?v=5"></script>
+  <script src="js/render.js?v=5"></script>
+  <script src="js/main.js?v=5"></script>
 </body>
 </html>

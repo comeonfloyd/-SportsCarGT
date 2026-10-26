@@ -118,7 +118,7 @@ h3:first-child { margin-top: 2px; }
 .badge.pass { background: #0f2419; color: var(--ok); border: 1px solid var(--ok); }
 .badge.fail { background: #2a1214; color: var(--bad); border: 1px solid var(--bad); }
 .badge.run { background: #2a1a10; color: var(--accent); border: 1px solid var(--accent); }
-#chart { width: 100%; height: 120px; display: block; margin: 8px 0; background: #0d1117; border-radius: 5px; }
+#chart, #tchart, #dyno { width: 100%; height: 120px; display: block; margin: 8px 0; background: #0d1117; border-radius: 5px; }
 .hist { font-size: 11px; width: 100%; border-collapse: collapse; }
 .hist td { padding: 3px 4px; border-bottom: 1px solid var(--line); }
 .hist td:last-child { text-align: right; font-family: var(--mono); }
@@ -128,3 +128,16 @@ h3:first-child { margin-top: 2px; }
   main { grid-template-columns: 200px 1fr 260px; }
   .filebar select { width: 150px; }
 }
+
+.progress { height: 5px; background: #0d1117; border-radius: 3px; overflow: hidden; margin-bottom: 6px; }
+.progress i { display: block; height: 100%; background: var(--accent); transition: width .2s; }
+.legend .speedbar { background: linear-gradient(90deg, #080a12, #162c5c 23%, #18647e 43%, #289292 55%, #f2be50 64%, #ff502d 77%, #ff285a); }
+.legend .cpbar { background: linear-gradient(90deg, #2878ff, #ebebeb, #ff3c28); }
+input[type=radio] { accent-color: var(--accent); }
+
+.lights { display: flex; gap: 4px; margin-top: 8px; flex-wrap: wrap; }
+.lights i { font: 700 9px/1 var(--mono); font-style: normal; padding: 3px 5px; border-radius: 3px; border: 1px solid #2a3442; color: #4d5b6b; }
+.ersbar { width: 100%; height: 4px; background: #0d1117; border-radius: 2px; margin-top: 4px; overflow: hidden; }
+.ersbar b { display: block; height: 100%; background: #7fd3ff; }
+input[type=range] { width: 100%; accent-color: var(--accent); margin-top: 4px; }
+input:disabled, select:disabled { opacity: 0.4; }
